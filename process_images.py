@@ -4,6 +4,7 @@ import torch
 from PIL import Image
 import numpy as np
 from packaging import version
+import shutil
 
 from accelerate import Accelerator
 from diffusers.utils.import_utils import is_xformers_available
@@ -47,25 +48,17 @@ def save_images(out, name):
     for i in range(Nv):
         # Extract components
         albedo, normal, mtl, rgh = reform_image_sep(out[i])
-        
-        # Debug shapes
-        print(f"Albedo shape: {albedo.shape}, dtype: {albedo.dtype}")
-        print(f"Normal shape: {normal.shape}, dtype: {normal.dtype}")
-        print(f"Mtl shape: {mtl.shape}, dtype: {mtl.dtype}")
-        print(f"Rgh shape: {rgh.shape}, dtype: {rgh.dtype}")
-        
+                
         # Handle unusual shapes
         def process_image(img, component_name):
             # First check if image is in channel-first format (C, H, W)
             if len(img.shape) == 3 and img.shape[0] <= 4:  # Typical channel sizes (1-4)
-                print(f"Transposing {component_name} from shape {img.shape} (C,H,W) to (H,W,C)")
                 img = img.transpose(1, 2, 0)  # Convert from (C,H,W) to (H,W,C)
             
             # If it's a weird shape like (1, 1, 512), reshape it to something sensible
             if len(img.shape) == 3 and img.shape[0] == 1 and img.shape[1] == 1:
                 # Reshape to a square image with 3 channels
                 size = int(np.sqrt(img.shape[2] // 3))
-                print(f"Reshaping {component_name} from {img.shape} to ({size}, {size}, 3)")
                 img = img.reshape(size, size, 3)
             
             # Ensure the shape is valid for an image
@@ -133,6 +126,22 @@ def load_pipeline():
     )
     return pipeline
 
+def generate_fake_transforms(root_dir):
+    """generate a fake transforms.json file"""
+    print(f"Generating fake transforms for {root_dir}")
+    image_files = os.listdir(root_dir)
+    print(f"Found {len(image_files)} images")
+    transforms = {"frames":[]}
+    for i in range(len(image_files)):
+        transforms["frames"].append(
+            {
+                "file_path": f"{i}",
+                "transform_matrix": "null",
+            }
+        )
+    with open(os.path.join(root_dir, "transforms.json"), "w") as f:
+        json.dump(transforms, f, indent=4)
+
 
 def compute_albedo(imgs: Image.Image, input_type="single", use_cam=False) -> Image.Image:
     """
@@ -164,6 +173,8 @@ def compute_albedo(imgs: Image.Image, input_type="single", use_cam=False) -> Ima
         os.makedirs("./temp/mv", exist_ok=True)
         for i, img in enumerate(imgs):
             img.save(os.path.join("./temp/mv", f'{i}.png'))
+        generate_fake_transforms("./temp/mv")
+
         dataset = CustomMVDataset(
             root_dir=temp_dir,
             num_views=len(imgs),
@@ -204,7 +215,7 @@ def compute_albedo(imgs: Image.Image, input_type="single", use_cam=False) -> Ima
 
             out = out.view(B, Nv, Nd, *out.shape[1:])
             out = out.detach().cpu().numpy()
-
+            print(out.shape)
             for i in range(B):
                 save_images(out[i], imgs_name[i])
             return out
