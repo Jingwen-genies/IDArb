@@ -39,6 +39,9 @@ class CustomDataset(Dataset):
 
         img = np.array(img)
         img = img.astype(np.float32) / 255.
+        if img.shape[-1] == 3:
+            # convert to RGBA
+            img = np.concatenate([img, np.ones_like(img[..., :1]) * 255.], axis=-1)
         assert img.shape[-1] == 4, f"please input RGBA images, {img_path}"
 
         # pad to [max_length, max_length]
